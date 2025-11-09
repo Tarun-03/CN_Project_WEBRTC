@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebRTC Chat</title>
+    <title>ConnectHub</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -23,15 +23,19 @@
     <!-- Main App View (Video + Chat) -->
     <div id="app-container" style="display: none;">
 
-        <div id="video-grid">
-            <!-- Video elements will be added here -->
+        <!-- This wrapper div is needed to group the grid and controls -->
+        <div id="video-main">
+            <div id="video-grid">
+                <!-- Video elements will be added here -->
+            </div>
+            
+            <div id="controls">
+                <button id="toggle-mic-btn">Mute Mic</button>
+                <button id="toggle-cam-btn">Hide Camera</button>
+                <button id="exit-btn">Exit Room</button>
+            </div>
         </div>
-        
-        <div id="controls">
-            <button id="toggle-mic-btn">Mute Mic</button>
-            <button id="toggle-cam-btn">Hide Camera</button>
-            <button id="exit-btn">Exit Room</button>
-        </div>
+        <!-- End of wrapper -->
 
         <div id="chat-container">
             <div id="room-header">Chat</div>
@@ -41,6 +45,10 @@
             <form id="message-form">
                 <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
                 <button type="submit">Send</button>
+                
+                <!-- NEW: File Input Button -->
+                <input type="file" id="file-input" style="display: none;">
+                <label for="file-input" id="file-label-btn">File</label>
             </form>
         </div>
     </div>

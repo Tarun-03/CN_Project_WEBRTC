@@ -7,7 +7,12 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = socketIo(server);
+
+// Increase the max buffer size for Socket.IO (e.g., to 10MB)
+// Default is 1MB, which might be too small for some files.
+const io = socketIo(server, {
+  maxHttpBufferSize: 1e7 // 10 million bytes (10MB)
+});
 
 const PORT = process.env.PORT || 3000;
 
@@ -61,6 +66,20 @@ io.on('connection', (socket) => {
     io.to(room).emit('new-message', {
       username: socket.username,
       message: message
+    });
+  });
+
+  // --- NEW: Listen for file shares ---
+  socket.on('file-share', (payload) => {
+    const { room, file, filename, filetype } = payload;
+    
+    // Broadcast the file to everyone in the room
+    // The 'file' payload is an ArrayBuffer
+    io.to(room).emit('new-file', {
+      username: socket.username,
+      file: file,
+      filename: filename,
+      filetype: filetype
     });
   });
 

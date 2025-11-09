@@ -1,10 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
     // This connects to the Socket.IO server
-    // const socket = io(); // <-- OLD LINE
     
-    // vvv NEW LINE vvv
-    // You get this URL from Render or Railway after deploying your backend
-    const socket = io('https://your-webrtc-backend-url.onrender.com'); 
+    // vvv THIS WAS THE PROBLEM vvv
+    // const socket = io('https://your-webrtc-backend-url.onrender.com'); 
+    
+    // vvv THIS IS THE FIX vvv
+    // Connects to your local server
+    const socket = io(); 
 
     // --- Global State ---
     let localStream = null;
@@ -34,6 +36,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const messages = document.getElementById('messages');
     const messageForm = document.getElementById('message-form');
     const messageInput = document.getElementById('message-input');
+    
+    // NEW: File input element
+    const fileInput = document.getElementById('file-input');
 
 
     // --- 1. Join Logic ---
@@ -95,10 +100,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         exitBtn.addEventListener('click', () => {
-            // Reloading the page is the simplest way to disconnect
-            // and return to the join screen with a clean state.
-            // The browser's page unload will trigger the socket disconnect event
-            // on the server, which then notifies other users.
             window.location.reload();
         });
         
@@ -107,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleCamBtn.classList.add('active');
     }
 
-    // --- 3. Text Chat Logic ---
+    // --- 3. Text Chat & File Logic ---
 
     messageForm.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -115,7 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (message && currentRoom) {
             socket.emit('chat-message', { room: currentRoom, message });
-            // addChatMessage(currentUsername, message); // <-- REMOVE THIS LINE
             messageInput.value = '';
         }
     });
@@ -124,10 +124,40 @@ document.addEventListener('DOMContentLoaded', () => {
         addChatMessage(username, message);
     });
 
+    // NEW: File input listener
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) {
+            return;
+        }
+
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+            const fileData = {
+                room: currentRoom,
+                file: event.target.result, // This is an ArrayBuffer
+                filename: file.name,
+                filetype: file.type
+            };
+            socket.emit('file-share', fileData);
+        };
+        
+        reader.readAsArrayBuffer(file);
+
+        // Reset file input
+        e.target.value = null;
+    });
+
+    // NEW: Listener for incoming files
+    socket.on('new-file', (payload) => {
+        addFileMessage(payload);
+    });
+
+
     // --- 4. Socket Event Handlers (WebRTC) ---
 
     // 'joined-room': Fired when WE successfully join.
-    // We get a list of other users to initiate connections with.
     socket.on('joined-room', ({ room, otherUsers }) => {
         addNotificationMessage('You have joined the room!');
         
@@ -150,7 +180,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 'user-joined': Fired when SOMEONE ELSE joins the room.
-    // We create a peer connection (but wait for their offer).
     socket.on('user-joined', ({ id, username }) => {
         addNotificationMessage(`${username} joined the room`);
         console.log(`New user joined, creating peer: ${username} (${id})`);
@@ -160,7 +189,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // 'offer': Fired when we receive an offer from a peer.
-    // We create an answer and send it back.
     socket.on('offer', (payload) => {
         console.log(`Received offer from ${payload.username} (${payload.source})`);
         const pc = createPeerConnection(payload.source, payload.username);
@@ -313,6 +341,58 @@ document.addEventListener('DOMContentLoaded', () => {
         
         messages.appendChild(messageElement);
         scrollToBottom();
+    }
+    
+    /**
+     * NEW: Adds a file message (image preview or download link) to the chatbox.
+     */
+    function addFileMessage(payload) {
+        const { username, file, filename, filetype } = payload;
+        
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('message');
+
+        // Create a Blob from the ArrayBuffer
+        const blob = new Blob([file], { type: filetype });
+        const url = URL.createObjectURL(blob);
+
+        let fileContentElement;
+
+        if (filetype.startsWith('image/')) {
+            // It's an image, create an <img> preview
+            fileContentElement = document.createElement('img');
+            fileContentElement.src = url;
+            fileContentElement.classList.add('file-preview');
+            fileContentElement.alt = filename;
+            // Optional: open in new tab on click
+            fileContentElement.onclick = () => window.open(url, '_blank');
+        } else {
+            // It's a different file, create a download link
+            fileContentElement = document.createElement('a');
+            fileContentElement.href = url;
+            fileContentElement.download = filename; // This makes it a download link
+            fileContentElement.textContent = `Download ${filename}`;
+            fileContentElement.classList.add('file-download');
+        }
+
+        if (username === currentUsername) {
+            messageElement.classList.add('mine');
+            messageElement.appendChild(fileContentElement);
+        } else {
+            messageElement.classList.add('other');
+            const usernameTag = document.createElement('strong');
+            usernameTag.textContent = username;
+            messageElement.appendChild(usernameTag);
+            messageElement.appendChild(fileContentElement);
+        }
+        
+        messages.appendChild(messageElement);
+        scrollToBottom();
+        
+        // Note: Object URLs should be revoked to free memory,
+        // but for a chat app, we'll keep them
+        // unless the chat is cleared.
+        // URL.revokeObjectURL(url); // Don't do this here
     }
 
     /**
