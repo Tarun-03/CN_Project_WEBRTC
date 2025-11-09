@@ -1,43 +1,49 @@
-document.addEventListener('DOMContentLoaded', () => {
-    // This connects to the Socket.IO server
-    
-    // vvv THIS WAS THE PROBLEM vvv
-    // const socket = io('https://your-webrtc-backend-url.onrender.com'); 
-    
-    // vvv THIS IS THE FIX vvv
-    // Connects to your local server
-    const socket = io(); 
+// Client-side logic for the WebRTC chat application
 
-    // --- Global State ---
+document.addEventListener('DOMContentLoaded', () => {
+
+    // --- 0. State and DOM Elements ---
+    
+    // Connection
+    // const socket = io('https://your-webrtc-backend-url.onrender.com'); // For deployment
+    const socket = io(); // For local development
+
+    // Local state
     let localStream = null;
+    let localUsername = '';
     let currentRoom = '';
-    let currentUsername = '';
-    const peerConnections = {}; // Stores all RTCPeerConnection objects, keyed by socket ID
-    const STUN_SERVER = {
+    const peerConnections = {}; // Stores all RTCPeerConnection objects, keyed by peerId
+    let statsInterval = null; // Holds the interval ID for stat monitoring
+    let lastStatsReport = {}; // Stores the last stats report for calculating bitrate
+
+    // STUN server configuration (Google's public STUN servers)
+    const iceConfig = {
         'iceServers': [
-            { 'urls': 'stun:stun.l.google.com:19302' }
+            { 'urls': 'stun:stun.l.google.com:19302' },
+            { 'urls': 'stun:stun1.l.google.com:19302' }
         ]
     };
 
-    // --- DOM Elements ---
+    // DOM Elements - Join View
     const joinContainer = document.getElementById('join-container');
-    const appContainer = document.getElementById('app-container');
-    const joinBtn = document.getElementById('join-btn');
     const usernameInput = document.getElementById('username-input');
     const roomInput = document.getElementById('room-input');
-    
-    const roomHeader = document.getElementById('room-header');
+    const joinBtn = document.getElementById('join-btn');
+
+    // DOM Elements - App View
+    const appContainer = document.getElementById('app-container');
     const videoGrid = document.getElementById('video-grid');
-    
     const toggleMicBtn = document.getElementById('toggle-mic-btn');
     const toggleCamBtn = document.getElementById('toggle-cam-btn');
     const exitBtn = document.getElementById('exit-btn');
     
+    // DOM Elements - Chat
+    const chatContainer = document.getElementById('chat-container');
     const messages = document.getElementById('messages');
     const messageForm = document.getElementById('message-form');
     const messageInput = document.getElementById('message-input');
     
-    // NEW: File input element
+    // File input element
     const fileInput = document.getElementById('file-input');
 
 
@@ -48,26 +54,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const room = roomInput.value.trim();
 
         if (username && room) {
-            currentUsername = username;
+            localUsername = username;
             currentRoom = room;
-
+            
             try {
-                // Get local audio and video stream
-                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                
-                // Show the main app
+                // Get local media stream
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: true
+                });
+
+                // Display local video
+                addVideoStream(socket.id, localStream, localUsername, true); // true = isLocal
+
+                // Show the main app and hide the join form
                 joinContainer.style.display = 'none';
                 appContainer.style.display = 'flex';
-                roomHeader.textContent = `Room: ${room}`;
 
-                // Add local video stream to the grid
-                addVideoStream('local', localStream, currentUsername, true); // Muted for self
+                // Update button states
+                toggleCamBtn.classList.add('active');
+                toggleMicBtn.classList.add('active');
 
-                // Setup media control buttons
-                setupMediaControls();
-                
                 // Emit 'join-room' event to the server
                 socket.emit('join-room', { username, room });
+
+                // Start monitoring stats
+                startMonitoringStats();
 
             } catch (error) {
                 console.error('Error accessing media devices.', error);
@@ -78,162 +90,198 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- 2. Media Control Logic ---
+    // --- 2. Socket Event Handlers ---
 
-    function setupMediaControls() {
-        toggleMicBtn.addEventListener('click', () => {
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                toggleMicBtn.textContent = audioTrack.enabled ? 'Mute Mic' : 'Unmute Mic';
-                toggleMicBtn.classList.toggle('active', audioTrack.enabled);
-            }
-        });
-
-        toggleCamBtn.addEventListener('click', () => {
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = !videoTrack.enabled;
-                toggleCamBtn.textContent = videoTrack.enabled ? 'Hide Camera' : 'Show Camera';
-                toggleCamBtn.classList.toggle('active', videoTrack.enabled);
-            }
-        });
-
-        exitBtn.addEventListener('click', () => {
-            window.location.reload();
-        });
-        
-        // Set initial button state
-        toggleMicBtn.classList.add('active');
-        toggleCamBtn.classList.add('active');
-    }
-
-    // --- 3. Text Chat & File Logic ---
-
-    messageForm.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const message = messageInput.value.trim();
-        
-        if (message && currentRoom) {
-            socket.emit('chat-message', { room: currentRoom, message });
-            messageInput.value = '';
-        }
-    });
-
-    socket.on('new-message', ({ username, message }) => {
-        addChatMessage(username, message);
-    });
-
-    // NEW: File input listener
-    fileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) {
-            return;
-        }
-
-        const reader = new FileReader();
-        
-        reader.onload = (event) => {
-            const fileData = {
-                room: currentRoom,
-                file: event.target.result, // This is an ArrayBuffer
-                filename: file.name,
-                filetype: file.type
-            };
-            socket.emit('file-share', fileData);
-        };
-        
-        reader.readAsArrayBuffer(file);
-
-        // Reset file input
-        e.target.value = null;
-    });
-
-    // NEW: Listener for incoming files
-    socket.on('new-file', (payload) => {
-        addFileMessage(payload);
-    });
-
-
-    // --- 4. Socket Event Handlers (WebRTC) ---
-
-    // 'joined-room': Fired when WE successfully join.
+    // Successfully joined room
     socket.on('joined-room', ({ room, otherUsers }) => {
-        addNotificationMessage('You have joined the room!');
+        console.log(`Successfully joined room ${room}`);
         
-        // For each existing user, create a peer connection and an offer
+        // For each existing user, create a new peer connection and send them an offer
         otherUsers.forEach(user => {
-            console.log(`Creating peer for existing user: ${user.username} (${user.id})`);
+            console.log(`Found existing user, creating offer for: ${user.username}`);
             const pc = createPeerConnection(user.id, user.username);
-            
-            // Create and send an offer
-            pc.createOffer()
-                .then(offer => pc.setLocalDescription(offer))
-                .then(() => {
-                    socket.emit('offer', {
-                        target: user.id,
-                        sdp: pc.localDescription
-                    });
-                })
-                .catch(e => console.error("Offer creation failed", e));
+            sendOffer(pc, user.id);
         });
     });
 
-    // 'user-joined': Fired when SOMEONE ELSE joins the room.
+    // A new user has joined the room
     socket.on('user-joined', ({ id, username }) => {
-        addNotificationMessage(`${username} joined the room`);
-        console.log(`New user joined, creating peer: ${username} (${id})`);
+        console.log(`User ${username} (id: ${id}) joined the room.`);
+        addNotification(`${username} joined the room.`);
         
-        // Create a peer connection for the new user, they will send an offer
-        createPeerConnection(id, username);
+        // We don't create a peer connection here. We wait for their offer.
+        // The new user is responsible for initiating offers to existing users.
     });
 
-    // 'offer': Fired when we receive an offer from a peer.
-    socket.on('offer', (payload) => {
-        console.log(`Received offer from ${payload.username} (${payload.source})`);
-        const pc = createPeerConnection(payload.source, payload.username);
+    // Receive an offer from a new user
+    socket.on('offer', async ({ source, sdp, username }) => {
+        console.log(`Received offer from ${username} (id: ${source})`);
+        const pc = createPeerConnection(source, username);
         
-        pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
-            .then(() => pc.createAnswer())
-            .then(answer => pc.setLocalDescription(answer))
-            .then(() => {
-                socket.emit('answer', {
-                    target: payload.source,
-                    sdp: pc.localDescription
-                });
-            })
-            .catch(e => console.error("Answer creation failed", e));
+        try {
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            
+            // Create an answer
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            // Send the answer back to the source user
+            socket.emit('answer', {
+                target: source,
+                sdp: pc.localDescription
+            });
+        } catch (error) {
+            console.error('Error handling offer:', error);
+        }
     });
 
-    // 'answer': Fired when we receive an answer to our offer.
-    socket.on('answer', (payload) => {
-        console.log(`Received answer from ${payload.source}`);
-        const pc = peerConnections[payload.source];
+    // Receive an answer from a peer
+    socket.on('answer', async ({ source, sdp }) => {
+        console.log(`Received answer from ${source}`);
+        const pc = peerConnections[source];
         if (pc) {
-            pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
-                .catch(e => console.error("Failed to set remote description", e));
+            try {
+                await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            } catch (error) {
+                console.error('Error setting remote description from answer:', error);
+            }
         }
     });
 
-    // 'ice-candidate': Fired when we receive an ICE candidate from a peer.
-    socket.on('ice-candidate', (payload) => {
-        const pc = peerConnections[payload.source];
-        if (pc && payload.candidate) {
-            pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
-                .catch(e => console.error("Failed to add ICE candidate", e));
+    // Receive an ICE candidate from a peer
+    socket.on('ice-candidate', async ({ source, candidate }) => {
+        // console.log(`Received ICE candidate from ${source}`);
+        const pc = peerConnections[source];
+        if (pc && candidate) {
+            try {
+                await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            } catch (error) {
+                console.error('Error adding received ICE candidate:', error);
+            }
         }
     });
 
-    // 'user-left': Fired when someone leaves the room.
+    // A user has left the room
     socket.on('user-left', ({ id, username }) => {
-        addNotificationMessage(`${username} left the room`);
+        console.log(`User ${username} (id: ${id}) left the room.`);
+        addNotification(`${username} left the room.`);
         
-        // Clean up the connection and remove the video element
+        // Clean up the connection and UI
         if (peerConnections[id]) {
             peerConnections[id].close();
             delete peerConnections[id];
         }
-        removeVideoStream(id);
+        
+        // Remove peer from stats tracking
+        if (lastStatsReport[id]) {
+            delete lastStatsReport[id];
+        }
+
+        const videoElement = document.getElementById(`video-${id}`);
+        if (videoElement) {
+            videoElement.remove();
+        }
+    });
+
+    // --- 3. Chat and File Handlers ---
+
+    // Listen for new chat messages
+    socket.on('new-message', ({ username, message }) => {
+        // *** FIX: Check if the username matches localUsername to style correctly ***
+        addMessage(username, message, username === localUsername);
+    });
+
+    // Listen for new files
+    socket.on('new-file', ({ username, file, filename, filetype }) => {
+        addFileMessage(username, file, filename, filetype, username === localUsername);
+    });
+
+    // Handle chat form submission
+    messageForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const message = messageInput.value.trim();
+        
+        if (message) {
+            // Emit the message to the server
+            socket.emit('chat-message', { room: currentRoom, message });
+            
+            // *** FIX: Removed optimistic addMessage to prevent duplicates ***
+            // addMessage(localUsername, message, true); // This line caused the bug
+            
+            // Clear the input
+            messageInput.value = '';
+        }
+    });
+
+    // Handle file input selection
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            console.log(`Sending file: ${file.name}, type: ${file.type}, size: ${file.size}`);
+
+            // We send the file as an ArrayBuffer
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const buffer = event.target.result;
+                
+                // Emit the file to the server
+                socket.emit('file-share', {
+                    room: currentRoom,
+                    file: buffer,
+                    filename: file.name,
+                    filetype: file.type
+                });
+
+                // *** FIX: Removed optimistic addFileMessage to prevent duplicates ***
+                // addFileMessage(localUsername, buffer, file.name, file.type, true);
+            };
+            reader.readAsArrayBuffer(file);
+            
+            // Reset the file input to allow sending the same file again
+            e.target.value = null;
+        }
+    });
+
+    // --- 4. Local Media Controls ---
+
+    // Toggle Microphone
+    toggleMicBtn.addEventListener('click', () => {
+        const audioTrack = localStream.getAudioTracks()[0];
+        if (audioTrack) {
+            audioTrack.enabled = !audioTrack.enabled;
+            if (audioTrack.enabled) {
+                toggleMicBtn.textContent = 'Mute Mic';
+                toggleMicBtn.classList.add('active');
+            } else {
+                toggleMicBtn.textContent = 'Unmute Mic';
+                toggleMicBtn.classList.remove('active');
+            }
+        }
+    });
+
+    // Toggle Camera
+    toggleCamBtn.addEventListener('click', () => {
+        const videoTrack = localStream.getVideoTracks()[0];
+        if (videoTrack) {
+            videoTrack.enabled = !videoTrack.enabled;
+            if (videoTrack.enabled) {
+                toggleCamBtn.textContent = 'Hide Camera';
+                toggleCamBtn.classList.add('active');
+            } else {
+                toggleCamBtn.textContent = 'Show Camera';
+                toggleCamBtn.classList.remove('active');
+            }
+        }
+    });
+
+    // Exit Room
+    exitBtn.addEventListener('click', () => {
+        // Stop the stats interval
+        if (statsInterval) {
+            clearInterval(statsInterval);
+        }
+        // Reload the page to disconnect and return to the join screen
+        window.location.reload();
     });
 
     // --- 5. WebRTC Helper Functions ---
@@ -241,19 +289,31 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Creates, configures, and stores a new RTCPeerConnection object.
      */
-    function createPeerConnection(peerId, username) {
-        // If connection already exists, return it
-        if (peerConnections[peerId]) {
-            return peerConnections[peerId];
+    function createPeerConnection(peerId, peerUsername) {
+        const pc = new RTCPeerConnection(iceConfig);
+
+        // Store the connection
+        peerConnections[peerId] = pc;
+
+        // Add local stream tracks to the connection
+        if (localStream) {
+            localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
+            });
         }
 
-        const pc = new RTCPeerConnection(STUN_SERVER);
+        // Handle incoming remote stream
+        pc.ontrack = (event) => {
+            console.log(`Received remote track from ${peerUsername}`);
+            if (event.streams && event.streams[0]) {
+                addVideoStream(peerId, event.streams[0], peerUsername, false);
+            }
+        };
 
-        // --- Configure event handlers ---
-
-        // 'onicecandidate': Send any generated ICE candidates to the peer
+        // Handle ICE candidates
         pc.onicecandidate = (event) => {
             if (event.candidate) {
+                // Send the candidate to the other peer
                 socket.emit('ice-candidate', {
                     target: peerId,
                     candidate: event.candidate
@@ -261,53 +321,177 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
 
-        // 'ontrack': Fired when the remote stream is added
-        pc.ontrack = (event) => {
-            console.log(`Received remote track from ${username} (${peerId})`);
-            addVideoStream(peerId, event.streams[0], username, false); // Not muted
+        // Handle connection state changes (for debugging)
+        pc.onconnectionstatechange = (event) => {
+            console.log(`Connection state with ${peerUsername} (${peerId}): ${pc.connectionState}`);
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+                // Optional: handle peer disconnection more gracefully
+            }
         };
 
-        // Add local tracks to the connection
-        if (localStream) {
-            localStream.getTracks().forEach(track => {
-                pc.addTrack(track, localStream);
-            });
-        } else {
-            console.error("Local stream is not ready when creating peer connection");
-        }
-        
-        // Store the connection
-        peerConnections[peerId] = pc;
         return pc;
     }
 
-    // --- 6. DOM Manipulation Functions ---
+    /**
+     * Creates and sends an SDP offer to a target peer.
+     */
+    async function sendOffer(pc, targetId) {
+        try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+
+            // Send the offer to the target user
+            socket.emit('offer', {
+                target: targetId,
+                sdp: pc.localDescription
+            });
+        } catch (error) {
+            console.error('Error creating or sending offer:', error);
+        }
+    }
+
+    // --- 6. Stats Monitoring (UPDATED) ---
+    
+    /**
+     * Periodically fetches and displays WebRTC stats for all peers.
+     */
+    function startMonitoringStats() {
+        const STATS_INTERVAL_MS = 3000; // Check stats every 3 seconds
+
+        statsInterval = setInterval(async () => {
+            // Check stats for each peer connection
+            for (const peerId in peerConnections) {
+                const pc = peerConnections[peerId];
+                
+                // Only check connections that are established
+                if (pc && (pc.connectionState === 'connected')) {
+                    try {
+                        const statsReport = await pc.getStats();
+                        let peerStats = {
+                            latency: 'N/A',
+                            jitter: 'N/A',
+                            packetsLost: 'N/A',
+                            framerate: 'N/A',
+                            bitrate: 'N/A',
+                            resolution: 'N/A',
+                            codec: 'N/A'
+                        };
+
+                        let inboundRtpReport = null;
+                        let remoteCandidateReport = null;
+
+                        statsReport.forEach(report => {
+                            // Find the active candidate pair (for Latency/RTT)
+                            if (report.type === 'candidate-pair' && report.state === 'succeeded' && report.currentRoundTripTime) {
+                                peerStats.latency = (report.currentRoundTripTime * 1000).toFixed(0); // in ms
+                                if (report.remoteCandidateId) {
+                                    remoteCandidateReport = statsReport.get(report.remoteCandidateId);
+                                }
+                            }
+                            
+                            // Find the inbound video stream stats
+                            if (report.type === 'inbound-rtp' && report.mediaType === 'video') {
+                                inboundRtpReport = report;
+                                peerStats.jitter = report.jitter ? (report.jitter * 1000).toFixed(2) : 'N/A'; // in ms
+                                peerStats.packetsLost = report.packetsLost;
+                                if (report.framesPerSecond) {
+                                    peerStats.framerate = report.framesPerSecond;
+                                }
+                                if (report.frameWidth && report.frameHeight) {
+                                    peerStats.resolution = `${report.frameWidth}x${report.frameHeight}`;
+                                }
+                                if (report.codecId) {
+                                    const codec = statsReport.get(report.codecId);
+                                    peerStats.codec = codec ? codec.mimeType.split('/')[1] : 'N/A';
+                                }
+                            }
+                        });
+
+                        // Calculate Bitrate
+                        if (inboundRtpReport) {
+                            const lastReport = lastStatsReport[peerId];
+                            if (lastReport && lastReport.inboundRtpReport) {
+                                // Calculate bytes received since last check
+                                const bytesReceived = inboundRtpReport.bytesReceived - lastReport.inboundRtpReport.bytesReceived;
+                                // Calculate time elapsed in seconds
+                                const timeElapsed = (inboundRtpReport.timestamp - lastReport.inboundRtpReport.timestamp) / 1000;
+                                
+                                if (timeElapsed > 0) {
+                                    const bitrate = (bytesReceived * 8) / timeElapsed / 1000; // in kbps
+                                    peerStats.bitrate = bitrate.toFixed(0);
+                                }
+                            }
+                            // Store current report for next calculation
+                            lastStatsReport[peerId] = { inboundRtpReport };
+                        }
+
+                        // Display the stats
+                        displayStats(peerId, peerStats);
+                    
+                    } catch (error) {
+                        console.error(`Error getting stats for peer ${peerId}:`, error);
+                    }
+                }
+            }
+        }, STATS_INTERVAL_MS);
+    }
+
+    /**
+     * Updates the UI with the latest stats for a peer.
+     */
+    function displayStats(peerId, stats) {
+        const videoContainer = document.getElementById(`video-${peerId}`);
+        if (!videoContainer) return;
+
+        let statsDisplay = videoContainer.querySelector('.stats-display');
+        if (!statsDisplay) {
+            // Create the stats display element if it doesn't exist
+            statsDisplay = document.createElement('div');
+            statsDisplay.classList.add('stats-display');
+            videoContainer.appendChild(statsDisplay);
+        }
+
+        // Update the stats content
+        statsDisplay.innerHTML = `
+            Latency: ${stats.latency} ms<br>
+            Jitter: ${stats.jitter} ms<br>
+            Lost: ${stats.packetsLost}<br>
+            Bitrate: ${stats.bitrate} kbps<br>
+            Res: ${stats.resolution}<br>
+            FPS: ${stats.framerate}<br>
+            Codec: ${stats.codec}
+        `.trim();
+    }
+
+
+    // --- 7. DOM Manipulation Functions ---
 
     /**
      * Adds a video stream to the video grid.
      */
-    function addVideoStream(id, stream, username, isMuted) {
-        // Check if video element already exists
+    function addVideoStream(id, stream, username, isLocal = false) {
+        // Prevent duplicate video elements
         if (document.getElementById(`video-${id}`)) {
             return;
         }
 
         const videoContainer = document.createElement('div');
-        videoContainer.id = `video-${id}`;
         videoContainer.classList.add('video-container');
-        if(id !== 'local') {
-            videoContainer.classList.add('remote-video');
-        }
+        videoContainer.id = `video-${id}`;
 
         const video = document.createElement('video');
         video.srcObject = stream;
         video.autoplay = true;
         video.playsInline = true;
-        video.muted = isMuted; // Mute self, but not others
+        
+        if (isLocal) {
+            video.muted = true; // Mute local video to prevent echo
+            video.style.transform = 'scaleX(-1)'; // Flip local video horizontally
+        }
 
         const usernameTag = document.createElement('div');
         usernameTag.classList.add('username-tag');
-        usernameTag.textContent = username;
+        usernameTag.textContent = isLocal ? `${username} (You)` : username;
 
         videoContainer.appendChild(video);
         videoContainer.appendChild(usernameTag);
@@ -315,98 +499,69 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
-     * Removes a video stream from the grid.
+     * Adds a text message to the chat UI.
      */
-    function removeVideoStream(id) {
-        const videoElement = document.getElementById(`video-${id}`);
-        if (videoElement) {
-            videoElement.remove();
-        }
-    }
-
-    /**
-     * Adds a chat message to the chatbox.
-     */
-    function addChatMessage(username, message) {
+    function addMessage(username, message, isMine) {
         const messageElement = document.createElement('div');
-        messageElement.classList.add('message');
-
-        if (username === currentUsername) {
-            messageElement.classList.add('mine');
-            messageElement.innerHTML = `<span>${message}</span>`;
-        } else {
-            messageElement.classList.add('other');
-            messageElement.innerHTML = `<strong>${username}</strong><span>${message}</span>`;
-        }
+        messageElement.classList.add('message', isMine ? 'mine' : 'other');
+        
+        messageElement.innerHTML = `<strong>${username}</strong>${message}`;
         
         messages.appendChild(messageElement);
         scrollToBottom();
     }
-    
+
     /**
-     * NEW: Adds a file message (image preview or download link) to the chatbox.
+     * Adds a file message (image preview or download link) to the chat UI.
      */
-    function addFileMessage(payload) {
-        const { username, file, filename, filetype } = payload;
-        
+    function addFileMessage(username, fileBuffer, filename, filetype, isMine) {
         const messageElement = document.createElement('div');
-        messageElement.classList.add('message');
+        messageElement.classList.add('message', isMine ? 'mine' : 'other');
 
-        // Create a Blob from the ArrayBuffer
-        const blob = new Blob([file], { type: filetype });
-        const url = URL.createObjectURL(blob);
+        // Create a blob from the ArrayBuffer
+        const blob = new Blob([fileBuffer], { type: filetype });
+        const fileUrl = URL.createObjectURL(blob);
 
-        let fileContentElement;
-
+        let fileElement;
         if (filetype.startsWith('image/')) {
             // It's an image, create an <img> preview
-            fileContentElement = document.createElement('img');
-            fileContentElement.src = url;
-            fileContentElement.classList.add('file-preview');
-            fileContentElement.alt = filename;
-            // Optional: open in new tab on click
-            fileContentElement.onclick = () => window.open(url, '_blank');
+            fileElement = document.createElement('img');
+            fileElement.src = fileUrl;
+            fileElement.classList.add('file-preview');
+            // Optional: allow clicking image to open in new tab
+            fileElement.onclick = () => window.open(fileUrl, '_blank');
         } else {
-            // It's a different file, create a download link
-            fileContentElement = document.createElement('a');
-            fileContentElement.href = url;
-            fileContentElement.download = filename; // This makes it a download link
-            fileContentElement.textContent = `Download ${filename}`;
-            fileContentElement.classList.add('file-download');
+            // It's another file type, create a download link
+            fileElement = document.createElement('a');
+            fileElement.href = fileUrl;
+            fileElement.download = filename; // Set the download attribute
+            fileElement.textContent = `Download: ${filename}`;
+            fileElement.classList.add('file-download');
         }
 
-        if (username === currentUsername) {
-            messageElement.classList.add('mine');
-            messageElement.appendChild(fileContentElement);
-        } else {
-            messageElement.classList.add('other');
-            const usernameTag = document.createElement('strong');
-            usernameTag.textContent = username;
-            messageElement.appendChild(usernameTag);
-            messageElement.appendChild(fileContentElement);
-        }
+        messageElement.innerHTML = `<strong>${username}</strong>`;
+        messageElement.appendChild(fileElement);
         
         messages.appendChild(messageElement);
         scrollToBottom();
-        
-        // Note: Object URLs should be revoked to free memory,
-        // but for a chat app, we'll keep them
-        // unless the chat is cleared.
-        // URL.revokeObjectURL(url); // Don't do this here
     }
 
     /**
-     * Adds a notification (e.g., "User joined") to the chatbox.
+     * Adds a notification message (e.g., "User joined") to the chat UI.
      */
-    function addNotificationMessage(message) {
-        const notificationElement = document.createElement('div');
-        notificationElement.classList.add('notification');
-        notificationElement.textContent = message;
-        messages.appendChild(notificationElement);
+    function addNotification(message) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('notification');
+        messageElement.textContent = message;
+        messages.appendChild(messageElement);
         scrollToBottom();
     }
 
+    /**
+     * Helper function to scroll the chat box to the bottom.
+     */
     function scrollToBottom() {
         messages.scrollTop = messages.scrollHeight;
     }
+
 });
