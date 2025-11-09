@@ -1,6 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
     // This connects to the Socket.IO server
-    const socket = io();
+    // const socket = io(); // <-- OLD LINE
+    
+    // vvv NEW LINE vvv
+    // You get this URL from Render or Railway after deploying your backend
+    const socket = io('https://your-webrtc-backend-url.onrender.com'); 
 
     // --- Global State ---
     let localStream = null;
@@ -25,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     const toggleMicBtn = document.getElementById('toggle-mic-btn');
     const toggleCamBtn = document.getElementById('toggle-cam-btn');
+    const exitBtn = document.getElementById('exit-btn');
     
     const messages = document.getElementById('messages');
     const messageForm = document.getElementById('message-form');
@@ -87,6 +92,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 toggleCamBtn.textContent = videoTrack.enabled ? 'Hide Camera' : 'Show Camera';
                 toggleCamBtn.classList.toggle('active', videoTrack.enabled);
             }
+        });
+
+        exitBtn.addEventListener('click', () => {
+            // Reloading the page is the simplest way to disconnect
+            // and return to the join screen with a clean state.
+            // The browser's page unload will trigger the socket disconnect event
+            // on the server, which then notifies other users.
+            window.location.reload();
         });
         
         // Set initial button state

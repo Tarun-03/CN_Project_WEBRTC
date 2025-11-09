@@ -262,3 +262,18 @@ button:hover {
         margin-bottom: 10px;
     }
 }
+
+#controls button {
+    width: auto;
+    padding: 10px 15px;
+    font-size: 14px;
+    background-color: #d9534f;
+}
+
+#controls button#exit-btn {
+    background-color: #f0ad4e; /* Make it a different color */
+}
+
+#controls button.active {
+    background-color: #5cb85c;
+}
