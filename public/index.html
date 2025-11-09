@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Chat</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Join View -->
+    <div id="join-container" class="container">
+        <h1>Join a Room</h1>
+        <div class="input-group">
+            <input type="text" id="username-input" placeholder="Enter your username">
+        </div>
+        <div class="input-group">
+            <input type="text" id="room-input" placeholder="Enter room code (e.g., abc123)">
+        </div>
+        <button id="join-btn">Join</button>
+    </div>
+
+    <!-- Main App View (Video + Chat) -->
+    <div id="app-container" style="display: none;">
+
+        <div id="video-grid">
+            <!-- Video elements will be added here -->
+        </div>
+        
+        <div id="controls">
+            <button id="toggle-mic-btn">Mute Mic</button>
+            <button id="toggle-cam-btn">Hide Camera</button>
+        </div>
+
+        <div id="chat-container">
+            <div id="room-header">Chat</div>
+            <div id="messages">
+                <!-- Chat messages will be appended here -->
+            </div>
+            <form id="message-form">
+                <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
+                <button type="submit">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Socket.IO library -->
+    <script src="/socket.io/socket.io.js"></script>
+    <!-- Client-side application logic -->
+    <script src="script.js"></script>
+</body>
+</html>

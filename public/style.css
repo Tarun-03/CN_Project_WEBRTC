@@ -1,0 +1,264 @@
+:root {
+    --bg-color: #f4f7f6;
+    --primary-color: #007bff;
+    --secondary-color: #ffffff;
+    --text-color: #333;
+    --border-color: #ddd;
+    --notification-bg: #e9f5ff;
+    --notification-text: #508ac9;
+    --my-message-bg: #dcf8c6;
+    --other-message-bg: #ffffff;
+    --video-bg: #2c2c2c;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+}
+
+/* --- Join View --- */
+#join-container {
+    max-width: 400px;
+    margin: 100px auto;
+    padding: 40px;
+    background-color: var(--secondary-color);
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    text-align: center;
+}
+
+#join-container h1 {
+    margin-top: 0;
+    margin-bottom: 24px;
+    font-size: 24px;
+}
+
+.input-group {
+    margin-bottom: 20px;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    box-sizing: border-box;
+}
+
+button {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+/* --- Main App View --- */
+#app-container {
+    display: flex;
+    flex-wrap: wrap;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Video Grid (Left/Main Area) */
+#video-grid {
+    flex-grow: 1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 10px;
+    padding: 10px;
+    background-color: var(--video-bg);
+    overflow-y: auto;
+    flex-basis: 70%;
+}
+
+.video-container {
+    position: relative;
+    background-color: #3a3a3a;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+.video-container video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* Flip the local video */
+    transform: scaleX(-1);
+}
+
+.video-container.remote-video video {
+    /* Un-flip remote videos */
+    transform: scaleX(1);
+}
+
+.username-tag {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    background-color: rgba(0, 0, 0, 0.5);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Controls Bar */
+#controls {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.4);
+    padding: 10px;
+    border-radius: 12px;
+    display: flex;
+    gap: 15px;
+    z-index: 100;
+}
+
+#controls button {
+    width: auto;
+    padding: 10px 15px;
+    font-size: 14px;
+    background-color: #d9534f;
+}
+
+#controls button.active {
+    background-color: #5cb85c;
+}
+
+
+/* Chat (Right Sidebar) */
+#chat-container {
+    flex-basis: 350px;
+    min-width: 300px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background-color: var(--secondary-color);
+    border-left: 1px solid var(--border-color);
+    box-shadow: -2px 0 10px rgba(0,0,0,0.03);
+}
+
+#room-header {
+    padding: 16px 20px;
+    background-color: var(--bg-color);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+#messages {
+    flex-grow: 1;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.message {
+    padding: 10px 14px;
+    border-radius: 18px;
+    max-width: 90%;
+    word-wrap: break-word;
+}
+
+.message strong {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 13px;
+    color: var(--primary-color);
+}
+
+.message.mine {
+    background-color: var(--my-message-bg);
+    align-self: flex-end;
+}
+
+.message.mine strong {
+    display: none;
+}
+
+.message.other {
+    background-color: var(--other-message-bg);
+    border: 1px solid var(--border-color);
+    align-self: flex-start;
+}
+
+.notification {
+    text-align: center;
+    font-size: 13px;
+    color: var(--notification-text);
+    background-color: var(--notification-bg);
+    padding: 8px 12px;
+    border-radius: 12px;
+    align-self: center;
+    margin: 4px 0;
+}
+
+#message-form {
+    display: flex;
+    padding: 20px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--bg-color);
+    flex-shrink: 0;
+}
+
+#message-input {
+    flex-grow: 1;
+    padding: 14px;
+    font-size: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-right: 10px;
+}
+
+#message-form button {
+    width: auto;
+    padding: 14px 20px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    #app-container {
+        flex-direction: column;
+        height: auto;
+    }
+    #video-grid {
+        flex-basis: auto;
+        height: 60vh; /* Give video a fixed height on mobile */
+    }
+    #chat-container {
+        flex-basis: auto;
+        height: 40vh; /* Chat takes bottom part */
+        min-width: 100%;
+        border-left: none;
+        border-top: 1px solid var(--border-color);
+    }
+    #controls {
+        bottom: 40vh; /* Position above the chat */
+        margin-bottom: 10px;
+    }
+}

@@ -1,0 +1,319 @@
+document.addEventListener('DOMContentLoaded', () => {
+    // This connects to the Socket.IO server
+    const socket = io();
+
+    // --- Global State ---
+    let localStream = null;
+    let currentRoom = '';
+    let currentUsername = '';
+    const peerConnections = {}; // Stores all RTCPeerConnection objects, keyed by socket ID
+    const STUN_SERVER = {
+        'iceServers': [
+            { 'urls': 'stun:stun.l.google.com:19302' }
+        ]
+    };
+
+    // --- DOM Elements ---
+    const joinContainer = document.getElementById('join-container');
+    const appContainer = document.getElementById('app-container');
+    const joinBtn = document.getElementById('join-btn');
+    const usernameInput = document.getElementById('username-input');
+    const roomInput = document.getElementById('room-input');
+    
+    const roomHeader = document.getElementById('room-header');
+    const videoGrid = document.getElementById('video-grid');
+    
+    const toggleMicBtn = document.getElementById('toggle-mic-btn');
+    const toggleCamBtn = document.getElementById('toggle-cam-btn');
+    
+    const messages = document.getElementById('messages');
+    const messageForm = document.getElementById('message-form');
+    const messageInput = document.getElementById('message-input');
+
+
+    // --- 1. Join Logic ---
+
+    joinBtn.addEventListener('click', async () => {
+        const username = usernameInput.value.trim();
+        const room = roomInput.value.trim();
+
+        if (username && room) {
+            currentUsername = username;
+            currentRoom = room;
+
+            try {
+                // Get local audio and video stream
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                
+                // Show the main app
+                joinContainer.style.display = 'none';
+                appContainer.style.display = 'flex';
+                roomHeader.textContent = `Room: ${room}`;
+
+                // Add local video stream to the grid
+                addVideoStream('local', localStream, currentUsername, true); // Muted for self
+
+                // Setup media control buttons
+                setupMediaControls();
+                
+                // Emit 'join-room' event to the server
+                socket.emit('join-room', { username, room });
+
+            } catch (error) {
+                console.error('Error accessing media devices.', error);
+                alert('Could not access camera or microphone. Please check permissions.');
+            }
+        } else {
+            alert('Please enter a username and room code.');
+        }
+    });
+
+    // --- 2. Media Control Logic ---
+
+    function setupMediaControls() {
+        toggleMicBtn.addEventListener('click', () => {
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                toggleMicBtn.textContent = audioTrack.enabled ? 'Mute Mic' : 'Unmute Mic';
+                toggleMicBtn.classList.toggle('active', audioTrack.enabled);
+            }
+        });
+
+        toggleCamBtn.addEventListener('click', () => {
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                toggleCamBtn.textContent = videoTrack.enabled ? 'Hide Camera' : 'Show Camera';
+                toggleCamBtn.classList.toggle('active', videoTrack.enabled);
+            }
+        });
+        
+        // Set initial button state
+        toggleMicBtn.classList.add('active');
+        toggleCamBtn.classList.add('active');
+    }
+
+    // --- 3. Text Chat Logic ---
+
+    messageForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const message = messageInput.value.trim();
+        
+        if (message && currentRoom) {
+            socket.emit('chat-message', { room: currentRoom, message });
+            // addChatMessage(currentUsername, message); // <-- REMOVE THIS LINE
+            messageInput.value = '';
+        }
+    });
+
+    socket.on('new-message', ({ username, message }) => {
+        addChatMessage(username, message);
+    });
+
+    // --- 4. Socket Event Handlers (WebRTC) ---
+
+    // 'joined-room': Fired when WE successfully join.
+    // We get a list of other users to initiate connections with.
+    socket.on('joined-room', ({ room, otherUsers }) => {
+        addNotificationMessage('You have joined the room!');
+        
+        // For each existing user, create a peer connection and an offer
+        otherUsers.forEach(user => {
+            console.log(`Creating peer for existing user: ${user.username} (${user.id})`);
+            const pc = createPeerConnection(user.id, user.username);
+            
+            // Create and send an offer
+            pc.createOffer()
+                .then(offer => pc.setLocalDescription(offer))
+                .then(() => {
+                    socket.emit('offer', {
+                        target: user.id,
+                        sdp: pc.localDescription
+                    });
+                })
+                .catch(e => console.error("Offer creation failed", e));
+        });
+    });
+
+    // 'user-joined': Fired when SOMEONE ELSE joins the room.
+    // We create a peer connection (but wait for their offer).
+    socket.on('user-joined', ({ id, username }) => {
+        addNotificationMessage(`${username} joined the room`);
+        console.log(`New user joined, creating peer: ${username} (${id})`);
+        
+        // Create a peer connection for the new user, they will send an offer
+        createPeerConnection(id, username);
+    });
+
+    // 'offer': Fired when we receive an offer from a peer.
+    // We create an answer and send it back.
+    socket.on('offer', (payload) => {
+        console.log(`Received offer from ${payload.username} (${payload.source})`);
+        const pc = createPeerConnection(payload.source, payload.username);
+        
+        pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
+            .then(() => pc.createAnswer())
+            .then(answer => pc.setLocalDescription(answer))
+            .then(() => {
+                socket.emit('answer', {
+                    target: payload.source,
+                    sdp: pc.localDescription
+                });
+            })
+            .catch(e => console.error("Answer creation failed", e));
+    });
+
+    // 'answer': Fired when we receive an answer to our offer.
+    socket.on('answer', (payload) => {
+        console.log(`Received answer from ${payload.source}`);
+        const pc = peerConnections[payload.source];
+        if (pc) {
+            pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
+                .catch(e => console.error("Failed to set remote description", e));
+        }
+    });
+
+    // 'ice-candidate': Fired when we receive an ICE candidate from a peer.
+    socket.on('ice-candidate', (payload) => {
+        const pc = peerConnections[payload.source];
+        if (pc && payload.candidate) {
+            pc.addIceCandidate(new RTCIceCandidate(payload.candidate))
+                .catch(e => console.error("Failed to add ICE candidate", e));
+        }
+    });
+
+    // 'user-left': Fired when someone leaves the room.
+    socket.on('user-left', ({ id, username }) => {
+        addNotificationMessage(`${username} left the room`);
+        
+        // Clean up the connection and remove the video element
+        if (peerConnections[id]) {
+            peerConnections[id].close();
+            delete peerConnections[id];
+        }
+        removeVideoStream(id);
+    });
+
+    // --- 5. WebRTC Helper Functions ---
+
+    /**
+     * Creates, configures, and stores a new RTCPeerConnection object.
+     */
+    function createPeerConnection(peerId, username) {
+        // If connection already exists, return it
+        if (peerConnections[peerId]) {
+            return peerConnections[peerId];
+        }
+
+        const pc = new RTCPeerConnection(STUN_SERVER);
+
+        // --- Configure event handlers ---
+
+        // 'onicecandidate': Send any generated ICE candidates to the peer
+        pc.onicecandidate = (event) => {
+            if (event.candidate) {
+                socket.emit('ice-candidate', {
+                    target: peerId,
+                    candidate: event.candidate
+                });
+            }
+        };
+
+        // 'ontrack': Fired when the remote stream is added
+        pc.ontrack = (event) => {
+            console.log(`Received remote track from ${username} (${peerId})`);
+            addVideoStream(peerId, event.streams[0], username, false); // Not muted
+        };
+
+        // Add local tracks to the connection
+        if (localStream) {
+            localStream.getTracks().forEach(track => {
+                pc.addTrack(track, localStream);
+            });
+        } else {
+            console.error("Local stream is not ready when creating peer connection");
+        }
+        
+        // Store the connection
+        peerConnections[peerId] = pc;
+        return pc;
+    }
+
+    // --- 6. DOM Manipulation Functions ---
+
+    /**
+     * Adds a video stream to the video grid.
+     */
+    function addVideoStream(id, stream, username, isMuted) {
+        // Check if video element already exists
+        if (document.getElementById(`video-${id}`)) {
+            return;
+        }
+
+        const videoContainer = document.createElement('div');
+        videoContainer.id = `video-${id}`;
+        videoContainer.classList.add('video-container');
+        if(id !== 'local') {
+            videoContainer.classList.add('remote-video');
+        }
+
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.muted = isMuted; // Mute self, but not others
+
+        const usernameTag = document.createElement('div');
+        usernameTag.classList.add('username-tag');
+        usernameTag.textContent = username;
+
+        videoContainer.appendChild(video);
+        videoContainer.appendChild(usernameTag);
+        videoGrid.appendChild(videoContainer);
+    }
+
+    /**
+     * Removes a video stream from the grid.
+     */
+    function removeVideoStream(id) {
+        const videoElement = document.getElementById(`video-${id}`);
+        if (videoElement) {
+            videoElement.remove();
+        }
+    }
+
+    /**
+     * Adds a chat message to the chatbox.
+     */
+    function addChatMessage(username, message) {
+        const messageElement = document.createElement('div');
+        messageElement.classList.add('message');
+
+        if (username === currentUsername) {
+            messageElement.classList.add('mine');
+            messageElement.innerHTML = `<span>${message}</span>`;
+        } else {
+            messageElement.classList.add('other');
+            messageElement.innerHTML = `<strong>${username}</strong><span>${message}</span>`;
+        }
+        
+        messages.appendChild(messageElement);
+        scrollToBottom();
+    }
+
+    /**
+     * Adds a notification (e.g., "User joined") to the chatbox.
+     */
+    function addNotificationMessage(message) {
+        const notificationElement = document.createElement('div');
+        notificationElement.classList.add('notification');
+        notificationElement.textContent = message;
+        messages.appendChild(notificationElement);
+        scrollToBottom();
+    }
+
+    function scrollToBottom() {
+        messages.scrollTop = messages.scrollHeight;
+    }
+});
