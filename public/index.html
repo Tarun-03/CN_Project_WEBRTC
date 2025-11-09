@@ -3,61 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ConnectHub</title>
-    <!-- This is the new logo for the browser tab -->
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='35' cy='50' r='30' fill='%230275d8'/%3E%3Ccircle cx='65' cy='50' r='30' fill='%235bc0de' opacity='0.8'/%3E%3C/svg%3E">
+    
+    <!-- Project Title -->
+    <title>ConnectHub - Real-Time Communication</title>
+    
+    <!-- Tab Icon (Embedded SVG) -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2240%22 cy=%2240%22 r=%2230%22 fill=%22%230275d8%22 /><circle cx=%2260%22 cy=%2260%22 r=%2230%22 fill=%22%235bc0de%22 fill-opacity=%220.7%22 /></svg>">
+
+    <!-- Link to Stylesheet -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-    <!-- Join View -->
+    <!-- Join Screen (Initially visible) -->
     <div id="join-container" class="container">
-        <h1>Join a Room Chat</h1>
+        <!-- Updated Title -->
+        <h1>ConnectHub</h1>
+        <p>Join a room to chat and call.</p>
         <div class="input-group">
-            <input type="text" id="username-input" placeholder="Enter your username">
+            <input type="text" id="username-input" placeholder="Enter your username" aria-label="Username">
         </div>
         <div class="input-group">
-            <input type="text" id="room-input" placeholder="Enter room code (e.g., abc123)">
+            <input type="text" id="room-input" placeholder="Enter room code" aria-label="Room Code">
         </div>
-        <button id="join-btn">Join</button>
+        <button id="join-btn">Join Room</button>
     </div>
 
-    <!-- Main App View (Video + Chat) -->
-    <div id="app-container" style="display: none;">
-
-        <!-- This wrapper div is needed to group the grid and controls -->
+    <!-- Main App (Initially hidden) -->
+    <div id="app-container" class="container" style="display: none;">
+        
+        <!-- Video & Controls Section -->
         <div id="video-main">
-            <div id="video-grid">
-                <!-- Video elements will be added here -->
-            </div>
             
+            <!-- Video Grid -->
+            <div id="video-grid">
+                <!-- Video containers will be added here dynamically -->
+            </div>
+
+            <!-- Controls Bar -->
             <div id="controls">
                 <button id="toggle-mic-btn">Mute Mic</button>
                 <button id="toggle-cam-btn">Hide Camera</button>
                 <button id="exit-btn">Exit Room</button>
             </div>
         </div>
-        <!-- End of wrapper -->
 
+        <!-- Chat Panel Section -->
         <div id="chat-container">
+            <!-- Header (will be updated by JS) -->
             <div id="room-header">Chat</div>
+            
+            <!-- Messages Display Area -->
             <div id="messages">
-                <!-- Chat messages will be appended here -->
+                <!-- Chat messages will be added here -->
             </div>
+            
+            <!-- Message Input Form -->
             <form id="message-form">
                 <input type="text" id="message-input" placeholder="Type a message..." autocomplete="off">
-                <button type="submit">Send</button>
+                <button type="submit" id="send-btn">Send</button>
                 
-                <!-- NEW: File Input Button -->
+                <!-- Hidden File Input -->
                 <input type="file" id="file-input" style="display: none;">
+                <!-- Styled Label for File Input -->
                 <label for="file-input" id="file-label-btn">File</label>
             </form>
         </div>
+
     </div>
 
-    <!-- Socket.IO library -->
+    <!-- Socket.IO Client Library -->
     <script src="/socket.io/socket.io.js"></script>
-    <!-- Client-side application logic -->
+    <!-- Your Client-side Logic -->
     <script src="script.js"></script>
+
 </body>
 </html>
